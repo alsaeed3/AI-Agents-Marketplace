@@ -102,6 +102,37 @@ const MOCK_AGENTS: Agent[] = [
 // Cache for agent metadata
 const metadataCache: Record<string, AgentMetadata | null> = {};
 
+// IPFS gateways to try (in order of preference)
+const IPFS_GATEWAYS = [
+  'https://gateway.pinata.cloud/ipfs/',
+  'https://ipfs.io/ipfs/',
+  'https://cloudflare-ipfs.com/ipfs/',
+  'https://dweb.link/ipfs/',
+];
+
+// Check if an IPFS hash looks like a valid CID (not a placeholder)
+function isValidIpfsHash(hash: string): boolean {
+  // Valid CIDs are typically 46+ characters starting with Qm (v0) or ba (v1)
+  // Placeholder hashes like 'QmAgent0' are too short
+  if (hash.length < 20) return false;
+  if (hash.startsWith('Qm') && hash.length >= 46) return true;
+  if (hash.startsWith('ba') && hash.length >= 59) return true;
+  return false;
+}
+
+// Fetch with timeout helper
+async function fetchWithTimeout(url: string, timeoutMs: number = 5000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // Parse metadata from URI (handles data URIs and IPFS)
 async function fetchAgentMetadata(metadataURI: string): Promise<AgentMetadata | null> {
   // Check cache first
@@ -117,14 +148,37 @@ async function fetchAgentMetadata(metadataURI: string): Promise<AgentMetadata | 
       const base64 = metadataURI.replace('data:application/json;base64,', '');
       jsonData = atob(base64);
     } else if (metadataURI.startsWith('ipfs://')) {
-      // Fetch from IPFS gateway
+      // Fetch from IPFS gateway with fallbacks
       const ipfsHash = metadataURI.replace('ipfs://', '');
-      const response = await fetch(`https://gateway.pinata.cloud/ipfs/${ipfsHash}`);
-      if (!response.ok) throw new Error('IPFS fetch failed');
-      jsonData = await response.text();
+      
+      // Skip placeholder/invalid IPFS hashes silently
+      if (!isValidIpfsHash(ipfsHash)) {
+        metadataCache[metadataURI] = null;
+        return null;
+      }
+      
+      // Try multiple gateways
+      let lastError: Error | null = null;
+      for (const gateway of IPFS_GATEWAYS) {
+        try {
+          const response = await fetchWithTimeout(`${gateway}${ipfsHash}`, 5000);
+          if (response.ok) {
+            jsonData = await response.text();
+            break;
+          }
+        } catch (err) {
+          lastError = err as Error;
+          // Continue to next gateway
+        }
+      }
+      
+      // If no gateway succeeded, throw
+      if (!jsonData!) {
+        throw lastError || new Error('All IPFS gateways failed');
+      }
     } else if (metadataURI.startsWith('http')) {
-      // Fetch from HTTP URL
-      const response = await fetch(metadataURI);
+      // Fetch from HTTP URL with timeout
+      const response = await fetchWithTimeout(metadataURI, 5000);
       if (!response.ok) throw new Error('HTTP fetch failed');
       jsonData = await response.text();
     } else {
@@ -135,7 +189,10 @@ async function fetchAgentMetadata(metadataURI: string): Promise<AgentMetadata | 
     metadataCache[metadataURI] = metadata;
     return metadata;
   } catch (err) {
-    console.error('Failed to fetch metadata:', err);
+    // Only log real errors, not expected failures for mock data
+    if (err instanceof Error && !err.message.includes('abort')) {
+      console.warn('Failed to fetch metadata for', metadataURI.substring(0, 30) + '...');
+    }
     metadataCache[metadataURI] = null;
     return null;
   }
