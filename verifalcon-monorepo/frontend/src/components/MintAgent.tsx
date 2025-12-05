@@ -13,7 +13,7 @@ interface MintAgentProps {
  * MintAgent Component
  * 
  * Form for registering a new AI Agent on the AgentRegistry contract.
- * Mints an ERC-8004 identity token for the agent.
+ * Mints an ERC-8004 identity token (NFT) for the agent.
  */
 export default function MintAgent({ onAgentMinted }: MintAgentProps) {
   const { address, isConnected } = useAccount();
@@ -26,6 +26,7 @@ export default function MintAgent({ onAgentMinted }: MintAgentProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
+  const [mintedAgentId, setMintedAgentId] = useState<bigint | null>(null);
 
   // Clear success message after 5 seconds
   useEffect(() => {
@@ -67,6 +68,7 @@ export default function MintAgent({ onAgentMinted }: MintAgentProps) {
       
       if (agentId !== null) {
         setSuccess(true);
+        setMintedAgentId(agentId);
         setAgentName('');
         setDescription('');
         setMetadataURI('');
@@ -188,8 +190,9 @@ export default function MintAgent({ onAgentMinted }: MintAgentProps) {
             <div className="success-message">
               <span>✅</span>
               <div>
-                <p className="font-semibold">Agent Registered Successfully!</p>
-                <p>Your agent is now available in the marketplace.</p>
+                <p className="font-semibold">🎉 Agent NFT Minted Successfully!</p>
+                <p>Token ID: #{mintedAgentId?.toString() || '0'}</p>
+                <p className="token-info">Your AI agent is now registered on-chain and available in the marketplace.</p>
               </div>
             </div>
           )}

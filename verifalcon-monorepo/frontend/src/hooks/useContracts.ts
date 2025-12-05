@@ -1,14 +1,27 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { 
   useWriteContract, 
   useReadContract, 
   useWaitForTransactionReceipt,
-  useAccount 
+  useAccount,
+  usePublicClient
 } from 'wagmi';
-import { parseEther } from 'viem';
+import { parseEther, decodeEventLog, type Log } from 'viem';
 import { Agent, Task, ContentCategory, getErrorMessage } from '@/types';
+
+// AgentRegistered event ABI for parsing logs
+const AGENT_REGISTERED_EVENT = {
+  type: 'event',
+  name: 'AgentRegistered',
+  inputs: [
+    { indexed: true, name: 'agentId', type: 'uint256' },
+    { indexed: true, name: 'developer', type: 'address' },
+    { indexed: false, name: 'category', type: 'uint8' },
+    { indexed: false, name: 'timestamp', type: 'uint256' },
+  ],
+} as const;
 
 // Contract ABIs (minimal required functions)
 export const AGENT_REGISTRY_ABI = [
@@ -22,6 +35,7 @@ export const AGENT_REGISTRY_ABI = [
     ],
     outputs: [{ type: 'uint256' }],
   },
+  AGENT_REGISTERED_EVENT,
   {
     name: 'getAgentInfo',
     type: 'function',
@@ -165,10 +179,11 @@ export function useAgentRegistry() {
   const { address } = useAccount();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const publicClient = usePublicClient();
 
   const { writeContractAsync } = useWriteContract();
 
-  // Register a new agent
+  // Register a new agent - mints ERC721 NFT
   const registerAgent = useCallback(async (
     metadataURI: string,
     category: ContentCategory
@@ -178,10 +193,16 @@ export function useAgentRegistry() {
       return null;
     }
 
+    if (!publicClient) {
+      setError('Network not available');
+      return null;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
+      // Send the transaction to register agent (mints NFT)
       const hash = await writeContractAsync({
         address: agentRegistry,
         abi: AGENT_REGISTRY_ABI,
@@ -189,9 +210,47 @@ export function useAgentRegistry() {
         args: [metadataURI, category],
       });
 
-      console.log('Agent registration tx:', hash);
-      // Note: In production, you'd wait for receipt and parse the agentId from logs
-      return BigInt(0); // Placeholder
+      console.log('Agent registration tx submitted:', hash);
+
+      // Wait for transaction confirmation
+      const receipt = await publicClient.waitForTransactionReceipt({ 
+        hash,
+        confirmations: 1,
+      });
+
+      console.log('Transaction confirmed:', receipt);
+
+      // Find the AgentRegistered event in the logs
+      let agentId: bigint | null = null;
+      
+      for (const log of receipt.logs) {
+        try {
+          // Try to decode as AgentRegistered event
+          const decoded = decodeEventLog({
+            abi: AGENT_REGISTRY_ABI,
+            data: log.data,
+            topics: log.topics,
+          });
+          
+          if (decoded.eventName === 'AgentRegistered') {
+            agentId = (decoded.args as { agentId: bigint }).agentId;
+            console.log('Agent NFT minted successfully! Agent ID:', agentId.toString());
+            break;
+          }
+        } catch {
+          // Not an AgentRegistered event, continue
+          continue;
+        }
+      }
+
+      if (agentId === null) {
+        // Fallback: if we can't parse the event, the tx was still successful
+        // Return a success indicator - the UI can refetch agents list
+        console.log('Agent registered successfully (could not parse event log)');
+        return BigInt(0);
+      }
+
+      return agentId;
     } catch (err) {
       const message = getErrorMessage(err);
       setError(message);
@@ -200,7 +259,7 @@ export function useAgentRegistry() {
     } finally {
       setIsLoading(false);
     }
-  }, [address, agentRegistry, writeContractAsync]);
+  }, [address, agentRegistry, writeContractAsync, publicClient]);
 
   // Report an agent
   const reportAgent = useCallback(async (agentId: bigint): Promise<boolean> => {
@@ -235,6 +294,101 @@ export function useAgentRegistry() {
     isLoading,
     error,
     contractAddress: agentRegistry,
+  };
+}
+
+/**
+ * Hook to fetch all registered agents from the AgentRegistry
+ */
+export function useAllAgents() {
+  const { agentRegistry } = getContractAddresses();
+  const publicClient = usePublicClient();
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch total agents count
+  const { data: totalAgents, refetch: refetchCount } = useReadContract({
+    address: agentRegistry,
+    abi: AGENT_REGISTRY_ABI,
+    functionName: 'getTotalAgents',
+    query: {
+      enabled: agentRegistry !== '0x0000000000000000000000000000000000000000',
+    },
+  });
+
+  // Fetch all agents when totalAgents changes
+  const fetchAllAgents = useCallback(async () => {
+    if (!publicClient || !totalAgents || totalAgents === BigInt(0)) {
+      setAgents([]);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const agentPromises: Promise<Agent | null>[] = [];
+      
+      for (let i = 0; i < Number(totalAgents); i++) {
+        const agentId = BigInt(i);
+        
+        agentPromises.push(
+          publicClient.readContract({
+            address: agentRegistry,
+            abi: AGENT_REGISTRY_ABI,
+            functionName: 'getAgentInfo',
+            args: [agentId],
+          }).then((data) => {
+            if (!data) return null;
+            return {
+              id: agentId,
+              developer: (data as { developer: `0x${string}` }).developer,
+              metadataURI: (data as { metadataURI: string }).metadataURI,
+              category: (data as { category: number }).category as ContentCategory,
+              reportCount: Number((data as { reportCount: bigint }).reportCount),
+              reputationScore: Number((data as { reputationScore: bigint }).reputationScore),
+              totalTasks: Number((data as { totalTasks: bigint }).totalTasks),
+              successfulTasks: Number((data as { successfulTasks: bigint }).successfulTasks),
+              registeredAt: Number((data as { registeredAt: bigint }).registeredAt),
+              isActive: (data as { isActive: boolean }).isActive,
+              isFlagged: (data as { isFlagged: boolean }).isFlagged,
+            };
+          }).catch(() => null)
+        );
+      }
+
+      const results = await Promise.all(agentPromises);
+      const validAgents = results.filter((a): a is Agent => a !== null);
+      setAgents(validAgents);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      console.error('Failed to fetch agents:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [publicClient, totalAgents, agentRegistry]);
+
+  // Auto-fetch when totalAgents changes
+  useEffect(() => {
+    if (totalAgents !== undefined) {
+      fetchAllAgents();
+    }
+  }, [totalAgents, fetchAllAgents]);
+
+  // Manual refetch function
+  const refetch = useCallback(async () => {
+    await refetchCount();
+    await fetchAllAgents();
+  }, [refetchCount, fetchAllAgents]);
+
+  return {
+    agents,
+    totalAgents: totalAgents ? Number(totalAgents) : 0,
+    isLoading,
+    error,
+    refetch,
+    fetchAllAgents,
   };
 }
 
