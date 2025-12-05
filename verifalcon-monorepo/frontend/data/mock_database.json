@@ -1,0 +1,28 @@
+{
+  "valid_serials": {
+    "8286E72": "Model A",
+    "1234ABCD": "Model B",
+    "5678EFGH": "Model C",
+    "9101IJKL": "Model D",
+    "2345MNOP": "Model E",
+    "6789QRST": "Model F",
+    "3456UVWX": "Model G",
+    "7890YZAB": "Model H",
+    "1357CDEF": "Model I",
+    "2468GHJK": "Model J"
+  },
+  "stolen_serials": [
+    "1111AAAA",
+    "2222BBBB",
+    "3333CCCC",
+    "4444DDDD",
+    "5555EEEE"
+  ],
+  "fake_serials": [
+    "9999FFFF",
+    "8888GGGG",
+    "7777HHHH",
+    "6666IIII",
+    "5555JJJJ"
+  ]
+}

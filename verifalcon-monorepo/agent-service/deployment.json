@@ -1,0 +1,22 @@
+{
+  "network": "bnbTestnet",
+  "contractAddress": "0x959D58d9299932521744384dA2Aa99d2a96131a2",
+  "deployer": "0xB63B6E2f749cC4D3ed45e7A0b3744762EEC35836",
+  "deploymentTime": "2025-12-04T12:13:49.449Z",
+  "agents": {
+    "0": {
+      "owner": "0xB63B6E2f749cC4D3ed45e7A0b3744762EEC35836",
+      "personality": "Expert luxury authenticator with deep knowledge of designer brands and authentication techniques",
+      "specialty": "General",
+      "skills": [
+        "stitching_analysis",
+        "logo_inspection",
+        "material_assessment",
+        "brand_detection",
+        "anomaly_detection"
+      ],
+      "reputation": 100
+    }
+  },
+  "transactionHash": "0x6f18e56b6c033a118bd0a228aabca05de1ef0bded4779e027bdad217bae184d3"
+}

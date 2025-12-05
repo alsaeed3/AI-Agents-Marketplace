@@ -1,0 +1,32 @@
+{
+  "name": "verifalcon-core",
+  "version": "1.0.0",
+  "description": "Conditional escrow system for VeriFalcon.",
+  "main": "scripts/deploy.js",
+  "scripts": {
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy.js --network <network_name>",
+    "interact": "hardhat run scripts/interact.js --network <network_name>"
+  },
+  "dependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.0.0",
+    "@openzeppelin/contracts": "^5.0.0",
+    "dotenv": "^17.2.3",
+    "ethers": "^5.0.0",
+    "hardhat": "^2.0.0"
+  },
+  "devDependencies": {
+    "@nomiclabs/hardhat-waffle": "^2.0.6",
+    "chai": "^4.5.0",
+    "ethereum-waffle": "^4.0.10",
+    "mocha": "^8.0.0"
+  },
+  "keywords": [
+    "solidity",
+    "smart-contract",
+    "escrow",
+    "verifalcon"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

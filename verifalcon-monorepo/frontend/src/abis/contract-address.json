@@ -1,0 +1,9 @@
+{
+  "network": "bscTestnet",
+  "chainId": 97,
+  "AgentRegistry": "0xae3644cD602A2b74e662F59838e55F7A4f504d8F",
+  "PaymentRouter": "0xD9f827242c619677874957f764aEC7f87a0d9659",
+  "termsVersion": "v1.0.0",
+  "deployedAt": "2025-12-05T17:19:50.365Z",
+  "deployer": "0xB63B6E2f749cC4D3ed45e7A0b3744762EEC35836"
+}
