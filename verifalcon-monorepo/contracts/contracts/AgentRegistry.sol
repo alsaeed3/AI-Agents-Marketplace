@@ -48,6 +48,7 @@ contract AgentRegistry is ERC721, ERC721URIStorage, AccessControl, Pausable, Ree
     struct AgentInfo {
         address developer;          // Address of the agent developer
         string metadataURI;         // IPFS/HTTP URI for extended metadata
+        string apiEndpoint;         // External API URL for BYOA (must be https://)
         ContentCategory category;   // Legal: mandatory content type classification
         uint256 reportCount;        // Community flagging counter
         uint256 reputationScore;    // Starts at 100, modified by performance
@@ -107,6 +108,26 @@ contract AgentRegistry is ERC721, ERC721URIStorage, AccessControl, Pausable, Ree
         uint256 indexed agentId
     );
     
+    // ============ MODIFIERS ============
+    
+    /**
+     * @notice Validate that URL starts with https://
+     * @param url The URL to validate
+     * @dev Security: Enforces SSL for all external API endpoints
+     */
+    modifier validateUrl(string memory url) {
+        bytes memory urlBytes = bytes(url);
+        require(urlBytes.length >= 8, "URL too short");
+        // Check starts with "https://"
+        require(
+            urlBytes[0] == 'h' && urlBytes[1] == 't' && urlBytes[2] == 't' &&
+            urlBytes[3] == 'p' && urlBytes[4] == 's' && urlBytes[5] == ':' &&
+            urlBytes[6] == '/' && urlBytes[7] == '/',
+            "URL must start with https://"
+        );
+        _;
+    }
+    
     // ============ CONSTRUCTOR ============
     constructor() ERC721("AI Agent Registry", "AIAR") {
         // Grant deployer all roles
@@ -120,6 +141,7 @@ contract AgentRegistry is ERC721, ERC721URIStorage, AccessControl, Pausable, Ree
     /**
      * @notice Register a new AI agent in the marketplace
      * @param metadataURI URI pointing to agent metadata (IPFS recommended)
+     * @param apiEndpoint External API endpoint URL (must be https://)
      * @param category Content category for legal compliance
      * @return agentId The unique identifier for the registered agent
      * 
@@ -128,8 +150,9 @@ contract AgentRegistry is ERC721, ERC721URIStorage, AccessControl, Pausable, Ree
      */
     function registerAgent(
         string calldata metadataURI,
+        string calldata apiEndpoint,
         ContentCategory category
-    ) external whenNotPaused nonReentrant returns (uint256) {
+    ) external whenNotPaused nonReentrant validateUrl(apiEndpoint) returns (uint256) {
         uint256 agentId = _agentIdCounter;
         _agentIdCounter++;
         
@@ -141,6 +164,7 @@ contract AgentRegistry is ERC721, ERC721URIStorage, AccessControl, Pausable, Ree
         agents[agentId] = AgentInfo({
             developer: msg.sender,
             metadataURI: metadataURI,
+            apiEndpoint: apiEndpoint,
             category: category,
             reportCount: 0,
             reputationScore: 100, // Starting reputation
@@ -300,6 +324,16 @@ contract AgentRegistry is ERC721, ERC721URIStorage, AccessControl, Pausable, Ree
     function isAgentAvailable(uint256 agentId) external view returns (bool) {
         if (_ownerOf(agentId) == address(0)) return false;
         return agents[agentId].isActive && !agents[agentId].isFlagged;
+    }
+    
+    /**
+     * @notice Get agent's API endpoint URL
+     * @param agentId The agent to query
+     * @return The API endpoint URL
+     */
+    function getAgentApiEndpoint(uint256 agentId) external view returns (string memory) {
+        require(_ownerOf(agentId) != address(0), "Agent does not exist");
+        return agents[agentId].apiEndpoint;
     }
     
     /**

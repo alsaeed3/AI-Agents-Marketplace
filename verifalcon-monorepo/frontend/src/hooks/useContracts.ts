@@ -31,6 +31,7 @@ export const AGENT_REGISTRY_ABI = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'metadataURI', type: 'string' },
+      { name: 'apiEndpoint', type: 'string' },
       { name: 'category', type: 'uint8' },
     ],
     outputs: [{ type: 'uint256' }],
@@ -47,6 +48,7 @@ export const AGENT_REGISTRY_ABI = [
         components: [
           { name: 'developer', type: 'address' },
           { name: 'metadataURI', type: 'string' },
+          { name: 'apiEndpoint', type: 'string' },
           { name: 'category', type: 'uint8' },
           { name: 'reportCount', type: 'uint256' },
           { name: 'reputationScore', type: 'uint256' },
@@ -79,6 +81,13 @@ export const AGENT_REGISTRY_ABI = [
     stateMutability: 'view',
     inputs: [{ name: 'agentId', type: 'uint256' }],
     outputs: [{ type: 'bool' }],
+  },
+  {
+    name: 'getAgentApiEndpoint',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'agentId', type: 'uint256' }],
+    outputs: [{ type: 'string' }],
   },
 ] as const;
 
@@ -186,6 +195,7 @@ export function useAgentRegistry() {
   // Register a new agent - mints ERC721 NFT
   const registerAgent = useCallback(async (
     metadataURI: string,
+    apiEndpoint: string,
     category: ContentCategory
   ): Promise<bigint | null> => {
     if (!address) {
@@ -207,7 +217,7 @@ export function useAgentRegistry() {
         address: agentRegistry,
         abi: AGENT_REGISTRY_ABI,
         functionName: 'registerAgent',
-        args: [metadataURI, category],
+        args: [metadataURI, apiEndpoint, category],
       });
 
       console.log('Agent registration tx submitted:', hash);
@@ -345,6 +355,7 @@ export function useAllAgents() {
               id: agentId,
               developer: (data as { developer: `0x${string}` }).developer,
               metadataURI: (data as { metadataURI: string }).metadataURI,
+              apiEndpoint: (data as { apiEndpoint: string }).apiEndpoint,
               category: (data as { category: number }).category as ContentCategory,
               reportCount: Number((data as { reportCount: bigint }).reportCount),
               reputationScore: Number((data as { reputationScore: bigint }).reputationScore),
@@ -538,6 +549,7 @@ export function useAgentData(agentId: bigint | null) {
     id: agentId!,
     developer: data.developer as `0x${string}`,
     metadataURI: data.metadataURI,
+    apiEndpoint: data.apiEndpoint,
     category: data.category as ContentCategory,
     reportCount: Number(data.reportCount),
     reputationScore: Number(data.reputationScore),

@@ -79,6 +79,8 @@ export interface Agent {
   developer: Address;
   /** IPFS/HTTP URI pointing to agent metadata */
   metadataURI: string;
+  /** External API endpoint for BYOA (must be https://) */
+  apiEndpoint: string;
   /** Content category for legal compliance */
   category: ContentCategory;
   /** Number of community reports */
@@ -95,6 +97,38 @@ export interface Agent {
   isActive: boolean;
   /** Whether agent has been flagged by moderators */
   isFlagged: boolean;
+}
+
+// ============ BYOA (BRING YOUR OWN AGENT) TYPES ============
+
+/**
+ * Headers injected into external agent API requests
+ * External developers use these to verify payment on-chain
+ */
+export interface ExternalAgentHeaders {
+  'X-Payment-Tx': `0x${string}`;
+  'X-Client-Address': `0x${string}`;
+  'Content-Type': 'application/json';
+}
+
+/**
+ * Standard response format for external agent APIs
+ */
+export interface ExternalAgentResponse {
+  success: boolean;
+  output?: unknown;
+  error?: string;
+}
+
+/**
+ * Result of executing a remote task
+ */
+export interface RemoteTaskResult {
+  success: boolean;
+  txHash: `0x${string}`;
+  taskId: bigint;
+  apiResponse?: ExternalAgentResponse;
+  error?: string;
 }
 
 /**

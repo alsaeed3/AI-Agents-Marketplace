@@ -587,6 +587,11 @@
         "type": "string"
       },
       {
+        "internalType": "string",
+        "name": "apiEndpoint",
+        "type": "string"
+      },
+      {
         "internalType": "enum AgentRegistry.ContentCategory",
         "name": "category",
         "type": "uint8"
@@ -711,6 +716,25 @@
         "type": "uint256"
       }
     ],
+    "name": "getAgentApiEndpoint",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "agentId",
+        "type": "uint256"
+      }
+    ],
     "name": "getAgentInfo",
     "outputs": [
       {
@@ -723,6 +747,11 @@
           {
             "internalType": "string",
             "name": "metadataURI",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "apiEndpoint",
             "type": "string"
           },
           {
@@ -980,6 +1009,11 @@
       {
         "internalType": "string",
         "name": "metadataURI",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "apiEndpoint",
         "type": "string"
       },
       {

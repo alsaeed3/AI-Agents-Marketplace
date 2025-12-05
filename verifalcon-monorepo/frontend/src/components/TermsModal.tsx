@@ -14,6 +14,7 @@ const AI_RISK_DISCLAIMERS = [
   'AI outputs should not be used for medical, legal, or financial decisions without professional review.',
   'The marketplace and agent developers are not liable for any damages resulting from AI outputs.',
   'Payment is based on task completion, not output quality or accuracy.',
+  'You are interacting with 3rd-party APIs. The Platform is not responsible for external agent downtime or data handling.',
 ];
 
 /**

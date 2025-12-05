@@ -128,6 +128,13 @@ contract PaymentRouter is AccessControl, Pausable, ReentrancyGuard {
         address recipient
     );
     
+    event PaymentReleased(
+        uint256 indexed taskId,
+        uint256 amount,
+        address indexed client,
+        address indexed developer
+    );
+    
     // ============ MODIFIERS ============
     
     /**
@@ -284,6 +291,7 @@ contract PaymentRouter is AccessControl, Pausable, ReentrancyGuard {
         require(success, "Payout transfer failed");
         
         emit TaskCompleted(taskId, payout);
+        emit PaymentReleased(taskId, payout, task.client, task.developer);
     }
     
     /**

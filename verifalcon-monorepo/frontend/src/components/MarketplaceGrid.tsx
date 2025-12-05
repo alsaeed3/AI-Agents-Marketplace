@@ -1,16 +1,18 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Agent,
   ContentCategory,
   ContentCategoryLabels,
   MarketplaceFilters,
   MarketplaceSortBy,
+  AgentMetadata,
   getErrorMessage,
 } from '@/types';
+import { useAllAgents } from '@/hooks/useContracts';
 
-// Agent names for demo display
+// Agent names for demo display (fallback when no metadata)
 const AGENT_NAMES: Record<string, string> = {
   '0': 'CodeMaster Pro',
   '1': 'TextGenius AI',
@@ -23,12 +25,13 @@ const AGENT_NAMES: Record<string, string> = {
   '8': 'SmartContract Auditor',
 };
 
-// Mock agents for demo
+// Mock agents for demo (used when no blockchain agents exist)
 const MOCK_AGENTS: Agent[] = [
   {
     id: BigInt(0),
     developer: '0x1234567890123456789012345678901234567890' as `0x${string}`,
     metadataURI: 'ipfs://QmAgent0',
+    apiEndpoint: 'https://api.example.com/agent/0',
     category: ContentCategory.Code,
     reportCount: 0,
     reputationScore: 185,
@@ -42,6 +45,7 @@ const MOCK_AGENTS: Agent[] = [
     id: BigInt(1),
     developer: '0x2345678901234567890123456789012345678901' as `0x${string}`,
     metadataURI: 'ipfs://QmAgent1',
+    apiEndpoint: 'https://api.example.com/agent/1',
     category: ContentCategory.Text,
     reportCount: 0,
     reputationScore: 165,
@@ -55,6 +59,7 @@ const MOCK_AGENTS: Agent[] = [
     id: BigInt(2),
     developer: '0x3456789012345678901234567890123456789012' as `0x${string}`,
     metadataURI: 'ipfs://QmAgent2',
+    apiEndpoint: 'https://api.example.com/agent/2',
     category: ContentCategory.Image,
     reportCount: 0,
     reputationScore: 142,
@@ -68,6 +73,7 @@ const MOCK_AGENTS: Agent[] = [
     id: BigInt(3),
     developer: '0x4567890123456789012345678901234567890123' as `0x${string}`,
     metadataURI: 'ipfs://QmAgent3',
+    apiEndpoint: 'https://api.example.com/agent/3',
     category: ContentCategory.Data,
     reportCount: 1,
     reputationScore: 118,
@@ -81,6 +87,7 @@ const MOCK_AGENTS: Agent[] = [
     id: BigInt(4),
     developer: '0x5678901234567890123456789012345678901234' as `0x${string}`,
     metadataURI: 'ipfs://QmAgent4',
+    apiEndpoint: 'https://api.example.com/agent/4',
     category: ContentCategory.Audio,
     reportCount: 0,
     reputationScore: 105,
@@ -90,67 +97,51 @@ const MOCK_AGENTS: Agent[] = [
     isActive: true,
     isFlagged: false,
   },
-  {
-    id: BigInt(5),
-    developer: '0x6789012345678901234567890123456789012345' as `0x${string}`,
-    metadataURI: 'ipfs://QmAgent5',
-    category: ContentCategory.Code,
-    reportCount: 0,
-    reputationScore: 100,
-    totalTasks: 12,
-    successfulTasks: 11,
-    registeredAt: Date.now() / 1000 - 86400 * 14,
-    isActive: true,
-    isFlagged: false,
-  },
-  {
-    id: BigInt(6),
-    developer: '0x7890123456789012345678901234567890123456' as `0x${string}`,
-    metadataURI: 'ipfs://QmAgent6',
-    category: ContentCategory.Text,
-    reportCount: 2,
-    reputationScore: 88,
-    totalTasks: 25,
-    successfulTasks: 20,
-    registeredAt: Date.now() / 1000 - 86400 * 10,
-    isActive: true,
-    isFlagged: false,
-  },
-  {
-    id: BigInt(7),
-    developer: '0x8901234567890123456789012345678901234567' as `0x${string}`,
-    metadataURI: 'ipfs://QmAgent7',
-    category: ContentCategory.Image,
-    reportCount: 0,
-    reputationScore: 100,
-    totalTasks: 5,
-    successfulTasks: 5,
-    registeredAt: Date.now() / 1000 - 86400 * 3,
-    isActive: true,
-    isFlagged: false,
-  },
-  {
-    id: BigInt(8),
-    developer: '0x9012345678901234567890123456789012345678' as `0x${string}`,
-    metadataURI: 'ipfs://QmAgent8',
-    category: ContentCategory.Code,
-    reportCount: 7,
-    reputationScore: 42,
-    totalTasks: 45,
-    successfulTasks: 28,
-    registeredAt: Date.now() / 1000 - 86400 * 120,
-    isActive: false,
-    isFlagged: true,
-  },
 ];
 
+// Cache for agent metadata
+const metadataCache: Record<string, AgentMetadata | null> = {};
+
+// Parse metadata from URI (handles data URIs and IPFS)
+async function fetchAgentMetadata(metadataURI: string): Promise<AgentMetadata | null> {
+  // Check cache first
+  if (metadataCache[metadataURI] !== undefined) {
+    return metadataCache[metadataURI];
+  }
+
+  try {
+    let jsonData: string;
+
+    if (metadataURI.startsWith('data:application/json;base64,')) {
+      // Decode base64 data URI
+      const base64 = metadataURI.replace('data:application/json;base64,', '');
+      jsonData = atob(base64);
+    } else if (metadataURI.startsWith('ipfs://')) {
+      // Fetch from IPFS gateway
+      const ipfsHash = metadataURI.replace('ipfs://', '');
+      const response = await fetch(`https://gateway.pinata.cloud/ipfs/${ipfsHash}`);
+      if (!response.ok) throw new Error('IPFS fetch failed');
+      jsonData = await response.text();
+    } else if (metadataURI.startsWith('http')) {
+      // Fetch from HTTP URL
+      const response = await fetch(metadataURI);
+      if (!response.ok) throw new Error('HTTP fetch failed');
+      jsonData = await response.text();
+    } else {
+      return null;
+    }
+
+    const metadata = JSON.parse(jsonData) as AgentMetadata;
+    metadataCache[metadataURI] = metadata;
+    return metadata;
+  } catch (err) {
+    console.error('Failed to fetch metadata:', err);
+    metadataCache[metadataURI] = null;
+    return null;
+  }
+}
+
 interface MarketplaceGridProps {
-  /** List of agents to display (uses mock data if not provided) */
-  agents?: Agent[];
-  /** Whether data is loading */
-  isLoading?: boolean;
-  /** Error state */
-  error?: string | null;
   /** Callback when agent is hired */
   onHireAgent: (agent: Agent) => void;
   /** Callback when agent is reported */
@@ -161,24 +152,66 @@ interface MarketplaceGridProps {
  * MarketplaceGrid Component
  * 
  * Displays a grid of registered AI agents with:
+ * - Real blockchain data fetching via useAllAgents hook
  * - Verified/Flagged status badges
  * - Reputation scores
  * - Category filters
  * - Human-readable error handling
  */
 export function MarketplaceGrid({
-  agents = MOCK_AGENTS,
-  isLoading = false,
-  error = null,
   onHireAgent,
   onReportAgent,
 }: MarketplaceGridProps) {
+  // Fetch real agents from blockchain
+  const { agents: blockchainAgents, isLoading: isFetchingAgents, error: fetchError, totalAgents, refetch } = useAllAgents();
+  
+  // Use blockchain agents if available, otherwise fall back to mock data
+  const agents = blockchainAgents.length > 0 ? blockchainAgents : MOCK_AGENTS;
+  const isLoading = isFetchingAgents;
+  const error = fetchError;
+  
+  // Track which agents are from blockchain vs mock
+  const isShowingRealData = blockchainAgents.length > 0;
+  
+  // Agent metadata cache state
+  const [agentMetadata, setAgentMetadata] = useState<Record<string, AgentMetadata | null>>({});
+  
+  // Filter states
   const [filters, setFilters] = useState<MarketplaceFilters>({
     showFlagged: false,
     showInactive: false,
   });
   const [sortBy, setSortBy] = useState<MarketplaceSortBy>('reputation-desc');
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Fetch metadata for all agents
+  useEffect(() => {
+    const fetchAllMetadata = async () => {
+      const newMetadata: Record<string, AgentMetadata | null> = {};
+      
+      for (const agent of agents) {
+        if (agent.metadataURI && !agentMetadata[agent.metadataURI]) {
+          const metadata = await fetchAgentMetadata(agent.metadataURI);
+          if (metadata) {
+            newMetadata[agent.metadataURI] = metadata;
+          }
+        }
+      }
+      
+      if (Object.keys(newMetadata).length > 0) {
+        setAgentMetadata(prev => ({ ...prev, ...newMetadata }));
+      }
+    };
+    
+    fetchAllMetadata();
+  }, [agents]);
+  
+  // Get agent display name from metadata or fallback
+  const getAgentName = (agent: Agent): string => {
+    const metadata = agentMetadata[agent.metadataURI];
+    if (metadata?.name) return metadata.name;
+    return AGENT_NAMES[agent.id.toString()] || `Agent #${agent.id.toString()}`;
+  };
 
   // Filter and sort agents
   const displayedAgents = useMemo(() => {
@@ -197,10 +230,12 @@ export function MarketplaceGrid({
         return false;
       }
 
-      // Search query (would need metadata for full search)
-      // For now, just filter by ID
-      if (searchQuery && !agent.id.toString().includes(searchQuery)) {
-        return false;
+      // Search query (searches name from metadata)
+      if (searchQuery) {
+        const name = getAgentName(agent).toLowerCase();
+        if (!name.includes(searchQuery.toLowerCase()) && !agent.id.toString().includes(searchQuery)) {
+          return false;
+        }
       }
 
       return true;
@@ -225,7 +260,7 @@ export function MarketplaceGrid({
     });
 
     return filtered;
-  }, [agents, filters, sortBy, searchQuery]);
+  }, [agents, filters, sortBy, searchQuery, agentMetadata]);
 
   // Get reputation badge color
   const getReputationColor = (score: number): string => {
@@ -256,7 +291,7 @@ export function MarketplaceGrid({
     return (
       <div className="marketplace-loading">
         <div className="spinner-large" />
-        <p>Loading agents...</p>
+        <p>Loading agents from blockchain...</p>
         <style jsx>{`
           .marketplace-loading {
             display: flex;
@@ -289,6 +324,9 @@ export function MarketplaceGrid({
         <span className="error-icon">❌</span>
         <h3>Failed to load agents</h3>
         <p>{getErrorMessage(error)}</p>
+        <button onClick={() => refetch()} className="retry-btn">
+          🔄 Retry
+        </button>
         <style jsx>{`
           .marketplace-error {
             display: flex;
@@ -307,7 +345,18 @@ export function MarketplaceGrid({
           }
           p {
             color: rgba(255, 255, 255, 0.6);
-            margin: 0;
+            margin: 0 0 1rem;
+          }
+          .retry-btn {
+            padding: 0.75rem 1.5rem;
+            background: rgba(96, 165, 250, 0.2);
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            border-radius: 8px;
+            color: #60a5fa;
+            cursor: pointer;
+          }
+          .retry-btn:hover {
+            background: rgba(96, 165, 250, 0.3);
           }
         `}</style>
       </div>
@@ -316,6 +365,15 @@ export function MarketplaceGrid({
 
   return (
     <div className="marketplace-container">
+      {/* Data Source Badge */}
+      <div className="data-source-badge">
+        {isShowingRealData ? (
+          <span className="badge live">🔗 Live Blockchain Data ({totalAgents} agents)</span>
+        ) : (
+          <span className="badge demo">📋 Demo Data (Connect wallet & register agents)</span>
+        )}
+      </div>
+      
       {/* Filters Bar */}
       <div className="filters-bar">
         <div className="search-box">
@@ -363,6 +421,10 @@ export function MarketplaceGrid({
             />
             Show Inactive
           </label>
+          
+          <button className="refresh-btn" onClick={() => refetch()} title="Refresh agents">
+            🔄
+          </button>
         </div>
       </div>
 
@@ -405,7 +467,7 @@ export function MarketplaceGrid({
 
                 {/* Agent Info */}
                 <div className="agent-info">
-                  <h3>{AGENT_NAMES[agent.id.toString()] || `Agent #${agent.id.toString()}`}</h3>
+                  <h3>{getAgentName(agent)}</h3>
                   <div className="agent-meta">
                     <span className="agent-id">#{agent.id.toString()}</span>
                     <span className="category-tag">
@@ -460,6 +522,30 @@ export function MarketplaceGrid({
       <style jsx>{`
         .marketplace-container {
           padding: 1.5rem;
+        }
+        
+        .data-source-badge {
+          margin-bottom: 1rem;
+        }
+        
+        .badge {
+          display: inline-block;
+          padding: 0.5rem 1rem;
+          border-radius: 20px;
+          font-size: 0.875rem;
+          font-weight: 500;
+        }
+        
+        .badge.live {
+          background: rgba(16, 185, 129, 0.1);
+          border: 1px solid rgba(16, 185, 129, 0.3);
+          color: #10b981;
+        }
+        
+        .badge.demo {
+          background: rgba(245, 158, 11, 0.1);
+          border: 1px solid rgba(245, 158, 11, 0.3);
+          color: #f59e0b;
         }
 
         .filters-bar {
@@ -531,6 +617,19 @@ export function MarketplaceGrid({
 
         .checkbox-filter input {
           accent-color: #60a5fa;
+        }
+        
+        .refresh-btn {
+          padding: 0.75rem;
+          background: rgba(96, 165, 250, 0.1);
+          border: 1px solid rgba(96, 165, 250, 0.3);
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 1rem;
+        }
+        
+        .refresh-btn:hover {
+          background: rgba(96, 165, 250, 0.2);
         }
 
         .results-count {
