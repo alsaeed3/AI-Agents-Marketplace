@@ -199,8 +199,8 @@ async function fetchAgentMetadata(metadataURI: string): Promise<AgentMetadata | 
 }
 
 interface MarketplaceGridProps {
-  /** Callback when agent is hired */
-  onHireAgent: (agent: Agent) => void;
+  /** Callback when agent is hired - includes agent and their base rate from metadata */
+  onHireAgent: (agent: Agent, baseRate: string) => void;
   /** Callback when agent is reported */
   onReportAgent?: (agentId: bigint) => void;
 }
@@ -506,7 +506,13 @@ export function MarketplaceGrid({
               <div
                 key={agent.id.toString()}
                 className={`agent-card ${agent.isFlagged ? 'flagged' : ''}`}
-                onClick={() => !agent.isFlagged && onHireAgent(agent)}
+                onClick={() => {
+                  if (!agent.isFlagged) {
+                    const metadata = agentMetadata[agent.metadataURI];
+                    const baseRate = metadata?.pricing?.baseRate || '0.001';
+                    onHireAgent(agent, baseRate);
+                  }
+                }}
               >
                 {/* Status Badge */}
                 <div

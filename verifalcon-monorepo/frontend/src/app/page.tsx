@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { bscTestnet } from 'wagmi/chains';
@@ -9,19 +9,8 @@ import MintAgent from '@/components/MintAgent';
 import AgentTerminal from '@/components/AgentTerminal';
 import HireAgentModal from '@/components/HireAgentModal';
 import TermsModal from '@/components/TermsModal';
-import { Agent, TerminalSession, PaymentStatus } from '@/types';
-
-// Mock contract addresses (would come from environment in production)
-const PAYMENT_ROUTER_ADDRESS = '0x0000000000000000000000000000000000000000' as `0x${string}`;
-const PAYMENT_ROUTER_ABI = [
-  {
-    name: 'acceptTerms',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [],
-    outputs: [],
-  },
-] as const;
+import { Agent, TerminalSession, PaymentStatus, getErrorMessage } from '@/types';
+import { getContractAddresses, PAYMENT_ROUTER_ABI } from '@/hooks/useContracts';
 
 type TabType = 'marketplace' | 'register' | 'terminal';
 
@@ -31,6 +20,7 @@ export default function Home() {
   
   // Agent & Task state
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [selectedAgentBaseRate, setSelectedAgentBaseRate] = useState<string>('0.001');
   const [currentTaskId, setCurrentTaskId] = useState<bigint | null>(null);
   const [terminalSession, setTerminalSession] = useState<TerminalSession>({
     taskId: null,
@@ -80,12 +70,13 @@ export default function Home() {
   };
 
   // When user clicks "Hire" on an agent card
-  const handleHireAgent = (agent: Agent) => {
+  const handleHireAgent = (agent: Agent, baseRate: string) => {
     if (!isConnected) {
       handleConnect();
       return;
     }
     setSelectedAgent(agent);
+    setSelectedAgentBaseRate(baseRate);
     setIsHireModalOpen(true);
   };
 
@@ -121,21 +112,138 @@ export default function Home() {
     setIsTermsModalOpen(false);
   };
 
-  const handleSendMessage = async (content: string): Promise<void> => {
-    // Simulate agent response
-    await new Promise(resolve => setTimeout(resolve, 2000));
+  /**
+   * Send a message to the AI agent's registered API endpoint
+   * Uses the agent's apiEndpoint from the blockchain
+   */
+  const handleSendMessage = useCallback(async (content: string): Promise<void> => {
+    const agent = terminalSession.agent;
     
+    if (!agent) {
+      setTerminalSession(prev => ({
+        ...prev,
+        messages: [...prev.messages, {
+          id: `error-${Date.now()}`,
+          role: 'system',
+          content: '❌ No agent selected. Please hire an agent first.',
+          timestamp: Date.now(),
+        }],
+        isWaiting: false,
+      }));
+      return;
+    }
+
+    // Validate agent has an API endpoint
+    if (!agent.apiEndpoint || !agent.apiEndpoint.startsWith('https://')) {
+      setTerminalSession(prev => ({
+        ...prev,
+        messages: [...prev.messages, {
+          id: `error-${Date.now()}`,
+          role: 'system',
+          content: `❌ Agent #${agent.id.toString()} does not have a valid API endpoint. The developer may not have configured it properly.`,
+          timestamp: Date.now(),
+        }],
+        isWaiting: false,
+        showRefundButton: true,
+      }));
+      return;
+    }
+
+    // Set waiting state with timeout countdown
     setTerminalSession(prev => ({
       ...prev,
-      messages: prev.messages.filter(m => !m.isLoading).concat({
-        id: `agent-${Date.now()}`,
-        role: 'agent',
-        content: `I received your request: "${content}". Processing with Agent #${prev.agent?.id.toString() || '0'}. This is a demo response.`,
-        timestamp: Date.now(),
-      }),
-      isWaiting: false,
+      isWaiting: true,
+      timeoutSeconds: 30,
     }));
-  };
+
+    try {
+      console.log('========================================');
+      console.log('[Agent API] Agent details:');
+      console.log('  - Agent ID:', agent.id.toString());
+      console.log('  - API Endpoint:', agent.apiEndpoint);
+      console.log('  - Message:', content);
+      console.log('========================================');
+      
+      // Build the full API URL - append /chat to the base endpoint
+      const apiUrl = agent.apiEndpoint.endsWith('/chat') 
+        ? agent.apiEndpoint 
+        : `${agent.apiEndpoint.replace(/\/$/, '')}/chat`;
+      
+      console.log('  - Full API URL:', apiUrl);
+      
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
+      // Call the agent's external API endpoint
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: content,
+        }),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Agent API returned status ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json() as { 
+        success?: boolean; 
+        output?: string; 
+        response?: string;
+        message?: string;
+        error?: string;
+      };
+      
+      console.log('[Agent API] Response received:', data);
+
+      // Extract the response content (handle different response formats)
+      const agentResponse = data.output || data.response || data.message || 
+        (data.success ? 'Task processed successfully.' : 'Received response from agent.');
+
+      // Add agent's response to messages
+      setTerminalSession(prev => ({
+        ...prev,
+        messages: prev.messages.filter(m => !m.isLoading).concat({
+          id: `agent-${Date.now()}`,
+          role: 'agent',
+          content: agentResponse,
+          timestamp: Date.now(),
+        }),
+        isWaiting: false,
+      }));
+
+    } catch (err) {
+      console.error('[Agent API] Error:', err);
+      
+      const errorMessage = getErrorMessage(err);
+      const isTimeout = errorMessage.includes('abort') || errorMessage.includes('timeout');
+      const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network');
+      
+      // Show error message and optionally refund button
+      setTerminalSession(prev => ({
+        ...prev,
+        messages: prev.messages.filter(m => !m.isLoading).concat({
+          id: `error-${Date.now()}`,
+          role: 'system',
+          content: isTimeout 
+            ? `⏱️ Agent #${agent.id.toString()} did not respond within 30 seconds. You may request a refund.`
+            : isNetworkError
+            ? `🌐 Cannot reach Agent #${agent.id.toString()}'s API. The agent may be offline. You may request a refund.`
+            : `❌ Error from Agent #${agent.id.toString()}: ${errorMessage}`,
+          timestamp: Date.now(),
+        }),
+        isWaiting: false,
+        showRefundButton: isTimeout || isNetworkError, // Show refund option on failures
+      }));
+    }
+  }, [terminalSession.agent, currentTaskId, address]);
 
   const handleRequestRefund = async (): Promise<void> => {
     // In production, this calls PaymentRouter.refundTask
@@ -355,6 +463,7 @@ export default function Home() {
       {selectedAgent && (
         <HireAgentModal
           agent={selectedAgent}
+          baseRate={selectedAgentBaseRate}
           isOpen={isHireModalOpen}
           onClose={() => setIsHireModalOpen(false)}
           onHireSuccess={handleHireSuccess}
@@ -367,7 +476,7 @@ export default function Home() {
         isOpen={isTermsModalOpen}
         onClose={() => setIsTermsModalOpen(false)}
         onAccepted={handleTermsAccepted}
-        paymentRouterAddress={PAYMENT_ROUTER_ADDRESS}
+        paymentRouterAddress={getContractAddresses().paymentRouter}
         paymentRouterAbi={PAYMENT_ROUTER_ABI}
       />
 

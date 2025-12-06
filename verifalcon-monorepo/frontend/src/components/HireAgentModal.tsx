@@ -7,6 +7,8 @@ import { usePaymentRouter } from '@/hooks/useContracts';
 interface HireAgentModalProps {
   /** Agent being hired */
   agent: Agent;
+  /** Fixed base rate for the agent (from metadata), in BNB */
+  baseRate: string;
   /** Whether modal is open */
   isOpen: boolean;
   /** Close modal callback */
@@ -31,13 +33,15 @@ interface HireAgentModalProps {
  */
 export function HireAgentModal({
   agent,
+  baseRate,
   isOpen,
   onClose,
   onHireSuccess,
   hasAcceptedTerms,
   onOpenTerms,
 }: HireAgentModalProps) {
-  const [paymentAmount, setPaymentAmount] = useState('0.01');
+  // Payment amount is fixed at agent's base rate (not editable)
+  const paymentAmount = baseRate;
   const [deadline, setDeadline] = useState(24); // Hours from now
   const [taskDescription, setTaskDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +103,6 @@ export function HireAgentModal({
     setStep('details');
     setError(null);
     setTaskDescription('');
-    setPaymentAmount('0.01');
     setDeadline(24);
   };
 
@@ -166,16 +169,15 @@ export function HireAgentModal({
                 />
               </div>
 
-              {/* Payment Amount */}
+              {/* Payment Amount - Fixed at agent's base rate */}
               <div className="form-row">
                 <div className="form-group">
-                  <label>Payment Amount (BNB)</label>
+                  <label>Payment Amount (BNB) <span className="fixed-rate-badge">Fixed Rate</span></label>
                   <input
                     type="number"
-                    step="0.000001"
-                    min="0.000001"
                     value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    readOnly
+                    className="readonly-input"
                   />
                 </div>
                 <div className="form-group">
@@ -450,6 +452,27 @@ export function HireAgentModal({
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 1rem;
+        }
+
+        .readonly-input {
+          background: rgba(0, 0, 0, 0.5) !important;
+          border-color: rgba(139, 92, 246, 0.3) !important;
+          cursor: not-allowed;
+          opacity: 0.9;
+        }
+
+        .fixed-rate-badge {
+          display: inline-block;
+          font-size: 0.625rem;
+          font-weight: 600;
+          padding: 2px 6px;
+          background: rgba(16, 185, 129, 0.2);
+          border: 1px solid rgba(16, 185, 129, 0.4);
+          border-radius: 4px;
+          color: #10b981;
+          margin-left: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
         }
 
         .fee-breakdown {
