@@ -371,8 +371,15 @@ function mapContractError(message: string): string {
     'Cannot activate flagged agent': 'Flagged agents cannot be activated',
     'Payout transfer failed': 'Payment transfer failed. Please try again.',
     'Refund transfer failed': 'Refund transfer failed. Please try again.',
-    'insufficient funds': 'Insufficient wallet balance',
+    'insufficient funds': 'Insufficient BNB balance. You need tBNB for gas fees.',
     'user rejected': 'Transaction was rejected',
+    'Internal JSON-RPC error': 'Transaction failed. Please ensure: 1) Gas Price is 5+ GWEI, 2) Try changing your Wallet RPC URL (e.g. to public.blastapi.io), 3) Verify you have enough tBNB.',
+    'execution reverted': 'Transaction would fail. Please check your inputs and try again.',
+    'nonce too low': 'Transaction nonce error. Please reset your wallet or wait for pending transactions.',
+    'replacement transaction underpriced': 'Gas price too low. Please increase gas or wait for pending transactions.',
+    'already known': 'This transaction is already pending. Please wait for it to complete.',
+    'network changed': 'Network changed. Please reconnect your wallet to BSC Testnet.',
+    'disconnected': 'Wallet disconnected. Please reconnect your wallet.',
   };
   
   for (const [key, value] of Object.entries(errorMap)) {

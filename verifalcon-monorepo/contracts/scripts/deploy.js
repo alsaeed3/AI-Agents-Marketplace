@@ -6,7 +6,7 @@ async function main() {
     
     // Constructor parameters
     const minimumAIScore = 70; // Minimum AI score required (70%)
-    const protocolFee = hre.ethers.utils.parseEther("0.001"); // 0.001 BNB protocol fee
+    const protocolFee = hre.ethers.utils.parseEther("0.000001"); // 0.000001 BNB protocol fee
     
     console.log("Deploying VeriFalconCore with parameters:");
     console.log("- Minimum AI Score:", minimumAIScore);

@@ -351,7 +351,7 @@ export default function MintAgent({ onAgentMinted }: MintAgentProps) {
             <label>Base Rate (BNB)</label>
             <input
               type="number"
-              step="0.001"
+              step="0.000001"
               min="0"
               value={pricing}
               onChange={(e) => setPricing(e.target.value)}

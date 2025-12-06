@@ -2,13 +2,13 @@
 
 import { useCallback, useState, useEffect } from 'react';
 import { 
-  useWriteContract, 
   useReadContract, 
   useWaitForTransactionReceipt,
   useAccount,
-  usePublicClient
+  usePublicClient,
+  useWalletClient
 } from 'wagmi';
-import { parseEther, decodeEventLog, type Log } from 'viem';
+import { parseEther, parseGwei, decodeEventLog, type Log } from 'viem';
 import { Agent, Task, ContentCategory, getErrorMessage } from '@/types';
 
 // AgentRegistered event ABI for parsing logs
@@ -185,12 +185,11 @@ export const getContractAddresses = () => {
  */
 export function useAgentRegistry() {
   const { agentRegistry } = getContractAddresses();
-  const { address } = useAccount();
+  const { address, chainId } = useAccount();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const publicClient = usePublicClient();
-
-  const { writeContractAsync } = useWriteContract();
+  const walletClient = useWalletClient();
 
   // Register a new agent - mints ERC721 NFT
   const registerAgent = useCallback(async (
@@ -208,34 +207,194 @@ export function useAgentRegistry() {
       return null;
     }
 
+    if (!walletClient.data) {
+      setError('Wallet client not available. Please reconnect your wallet.');
+      return null;
+    }
+
+    // Validate chain ID - must be BSC Testnet (97)
+    if (chainId !== 97) {
+      setError(`Wrong network! Please switch to BSC Testnet. Current chain: ${chainId}`);
+      console.error('Chain mismatch: Expected 97 (BSC Testnet), got:', chainId);
+      return null;
+    }
+
+    // Try to add/switch to BSC Testnet with correct RPC
+    // This helps fix MetaMask's broken default BSC Testnet RPC
+    try {
+      console.log('Ensuring BSC Testnet is configured with correct RPC...');
+      await (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum?.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: '0x61', // 97 in hex
+          chainName: 'BNB Smart Chain Testnet',
+          nativeCurrency: {
+            name: 'tBNB',
+            symbol: 'tBNB',
+            decimals: 18,
+          },
+          rpcUrls: [
+            'https://data-seed-prebsc-1-s1.binance.org:8545/',
+            'https://bsc-testnet-rpc.publicnode.com',
+            'https://data-seed-prebsc-1-s1.binance.org:8545/',
+            'https://data-seed-prebsc-2-s1.binance.org:8545/'
+          ],
+          blockExplorerUrls: ['https://testnet.bscscan.com'],
+        }],
+      });
+      console.log('✅ BSC Testnet configured with reliable RPC');
+    } catch (addChainError) {
+      // Error 4902 means chain already exists, which is fine
+      const err = addChainError as { code?: number };
+      // If chain exists but might have bad RPC, try switching to it anyway
+      // or prompt user to update it manually if needed
+      if (err.code !== 4902) {
+        console.warn('Could not update BSC Testnet RPC:', addChainError);
+      }
+    }
+
+    console.log('=== Starting Agent Registration ===');
+    console.log('Chain ID:', chainId);
+    console.log('Wallet:', address);
+    console.log('Contract:', agentRegistry);
+    console.log('Args:', { metadataURI, apiEndpoint, category });
+
     setIsLoading(true);
     setError(null);
 
     try {
-      // Send the transaction to register agent (mints NFT)
-      const hash = await writeContractAsync({
-        address: agentRegistry,
+      // Step 1: Simulate the transaction using our reliable RPC
+      console.log('Step 1: Simulating transaction...');
+      let simulateResult;
+      try {
+        simulateResult = await publicClient.simulateContract({
+          address: agentRegistry,
+          abi: AGENT_REGISTRY_ABI,
+          functionName: 'registerAgent',
+          args: [metadataURI, apiEndpoint, category],
+          account: address,
+        });
+        console.log('✅ Simulation successful, would return agent ID:', simulateResult.result?.toString());
+      } catch (simError) {
+        console.error('❌ Simulation failed:', simError);
+        // Extract more details from simulation error
+        const simErrorMsg = simError instanceof Error ? simError.message : String(simError);
+        if (simErrorMsg.includes('paused')) {
+          setError('Contract is currently paused. Please try again later.');
+        } else if (simErrorMsg.includes('https://')) {
+          setError('API endpoint must use HTTPS.');
+        } else {
+          setError(`Transaction would fail: ${simErrorMsg.slice(0, 100)}`);
+        }
+        return null;
+      }
+
+      // Step 2: Get gas parameters from our reliable RPC
+      // This bypasses potential issues with MetaMask's RPC estimation
+      console.log('Step 2: Getting gas parameters from our RPC...');
+      const gasPrice = await publicClient.getGasPrice();
+      const adjustedGasPrice = (gasPrice * BigInt(120)) / BigInt(100); // 20% buffer
+      
+      // Enforce minimum gas price of 5 gwei to avoid "Internal JSON-RPC error"
+      // BSC Testnet sometimes rejects transactions with very low gas price (e.g. 0.1 gwei)
+      const minGasPrice = parseGwei('5');
+      const safeGasPrice = adjustedGasPrice > minGasPrice ? adjustedGasPrice : minGasPrice;
+      
+      const gasLimit = simulateResult.request.gas 
+        ? (simulateResult.request.gas * BigInt(200)) / BigInt(100) // 100% buffer (2x)
+        : BigInt(1000000); // 1M gas fallback
+      
+      console.log('Gas params:', {
+        gasPrice: gasPrice.toString(),
+        adjustedGasPrice: adjustedGasPrice.toString(),
+        minGasPrice: minGasPrice.toString(),
+        finalGasPrice: safeGasPrice.toString(),
+        gasLimit: gasLimit.toString(),
+      });
+
+      // Step 3: Send transaction using sendTransaction with encoded data
+      // This is a simpler RPC call that may bypass MetaMask's broken BSC RPC
+      console.log('Step 3: Encoding function data and sending transaction...');
+      
+      // Encode the function call data
+      const { encodeFunctionData } = await import('viem');
+      const callData = encodeFunctionData({
         abi: AGENT_REGISTRY_ABI,
         functionName: 'registerAgent',
         args: [metadataURI, apiEndpoint, category],
       });
+      
+      console.log('Encoded calldata:', callData.slice(0, 66) + '...');
+      
+      let hash: `0x${string}`;
+      try {
+        // Use sendTransaction which is a simpler RPC call
+        // This might work better with MetaMask's sometimes buggy BSC RPC
+        hash = await walletClient.data!.sendTransaction({
+          to: agentRegistry,
+          data: callData,
+          gas: gasLimit,
+          gasPrice: safeGasPrice,
+        });
+        
+        console.log('✅ Transaction sent:', hash);
+      } catch (txError) {
 
-      console.log('Agent registration tx submitted:', hash);
+        // Log the full raw error for debugging
+        console.error('❌ RAW TRANSACTION ERROR:', txError);
+        
+        // Log all properties of the error for debugging
+        const txErrorObj = txError as { 
+          code?: number; 
+          message?: string; 
+          shortMessage?: string;
+          cause?: unknown;
+          details?: string;
+          name?: string;
+        };
+        if (txErrorObj.code === 4001 || 
+            txErrorObj.message?.includes('rejected') || 
+            txErrorObj.message?.includes('denied') ||
+            txErrorObj.shortMessage?.includes('rejected') ||
+            txErrorObj.shortMessage?.includes('User rejected')) {
+          setError('Transaction was rejected by user');
+          return null;
+        }
+        
+        // Check for insufficient funds
+        if (txErrorObj.message?.includes('insufficient') || txErrorObj.shortMessage?.includes('insufficient')) {
+          setError('Insufficient BNB for gas fees. Please add tBNB to your wallet.');
+          return null;
+        }
+        
+        // Check for method not supported (shouldn't happen now, but just in case)
+        if (txErrorObj.message?.includes('not supported') || txErrorObj.shortMessage?.includes('not supported')) {
+          setError('Wallet method not supported. Please try using MetaMask.');
+          return null;
+        }
+        
+        throw txError;
+      }
 
-      // Wait for transaction confirmation
+      // Step 4: Wait for transaction confirmation using our RPC
+      console.log('Step 4: Waiting for confirmation...');
       const receipt = await publicClient.waitForTransactionReceipt({ 
         hash,
         confirmations: 1,
+        timeout: 120000, // 2 minute timeout
       });
 
-      console.log('Transaction confirmed:', receipt);
+      if (receipt.status === 'reverted') {
+        throw new Error('Transaction reverted on-chain');
+      }
 
-      // Find the AgentRegistered event in the logs
+      console.log('✅ Transaction confirmed in block:', receipt.blockNumber);
+
+      // Step 5: Parse the AgentRegistered event
       let agentId: bigint | null = null;
       
       for (const log of receipt.logs) {
         try {
-          // Try to decode as AgentRegistered event
           const decoded = decodeEventLog({
             abi: AGENT_REGISTRY_ABI,
             data: log.data,
@@ -244,32 +403,36 @@ export function useAgentRegistry() {
           
           if (decoded.eventName === 'AgentRegistered') {
             agentId = (decoded.args as { agentId: bigint }).agentId;
-            console.log('Agent NFT minted successfully! Agent ID:', agentId.toString());
+            console.log('🎉 Agent NFT minted! ID:', agentId.toString());
             break;
           }
         } catch {
-          // Not an AgentRegistered event, continue
           continue;
         }
       }
 
       if (agentId === null) {
-        // Fallback: if we can't parse the event, the tx was still successful
-        // Return a success indicator - the UI can refetch agents list
-        console.log('Agent registered successfully (could not parse event log)');
+        console.log('Agent registered (event parsing skipped)');
         return BigInt(0);
       }
 
       return agentId;
     } catch (err) {
+      // Log the full raw error for debugging
+      console.error('❌ Catch Block Error:', err);
+      
+      // Try to extract more details
+      const errObj = err as { code?: number; message?: string; data?: unknown; reason?: string };
+
+      
       const message = getErrorMessage(err);
       setError(message);
-      console.error('Failed to register agent:', err);
+      console.error('❌ Failed to register agent:', message);
       return null;
     } finally {
       setIsLoading(false);
     }
-  }, [address, agentRegistry, writeContractAsync, publicClient]);
+  }, [address, chainId, agentRegistry, publicClient, walletClient.data]);
 
   // Report an agent
   const reportAgent = useCallback(async (agentId: bigint): Promise<boolean> => {
@@ -278,11 +441,16 @@ export function useAgentRegistry() {
       return false;
     }
 
+    if (!walletClient.data) {
+      setError('Wallet client not available');
+      return false;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
-      await writeContractAsync({
+      await walletClient.data.writeContract({
         address: agentRegistry,
         abi: AGENT_REGISTRY_ABI,
         functionName: 'reportAgent',
@@ -296,7 +464,7 @@ export function useAgentRegistry() {
     } finally {
       setIsLoading(false);
     }
-  }, [address, agentRegistry, writeContractAsync]);
+  }, [address, agentRegistry, walletClient.data]);
 
   return {
     registerAgent,
@@ -411,8 +579,7 @@ export function usePaymentRouter() {
   const { address } = useAccount();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const { writeContractAsync } = useWriteContract();
+  const walletClient = useWalletClient();
 
   // Check if user has accepted terms
   const { data: hasAcceptedTerms } = useReadContract({
@@ -425,6 +592,7 @@ export function usePaymentRouter() {
     },
   });
 
+
   // Accept terms of service
   const acceptTerms = useCallback(async (): Promise<boolean> => {
     if (!address) {
@@ -432,11 +600,16 @@ export function usePaymentRouter() {
       return false;
     }
 
+    if (!walletClient.data) {
+      setError('Wallet client not available');
+      return false;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
-      await writeContractAsync({
+      await walletClient.data.writeContract({
         address: paymentRouter,
         abi: PAYMENT_ROUTER_ABI,
         functionName: 'acceptTerms',
@@ -449,7 +622,7 @@ export function usePaymentRouter() {
     } finally {
       setIsLoading(false);
     }
-  }, [address, paymentRouter, writeContractAsync]);
+  }, [address, paymentRouter, walletClient.data]);
 
   // Create a new task with escrowed payment
   const createTask = useCallback(async (
@@ -463,6 +636,11 @@ export function usePaymentRouter() {
       return null;
     }
 
+    if (!walletClient.data) {
+      setError('Wallet client not available');
+      return null;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -470,7 +648,7 @@ export function usePaymentRouter() {
       const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineHours * 3600);
       const paymentWei = parseEther(paymentBNB);
 
-      const hash = await writeContractAsync({
+      const hash = await walletClient.data.writeContract({
         address: paymentRouter,
         abi: PAYMENT_ROUTER_ABI,
         functionName: 'createTask',
@@ -488,7 +666,7 @@ export function usePaymentRouter() {
     } finally {
       setIsLoading(false);
     }
-  }, [address, paymentRouter, writeContractAsync]);
+  }, [address, paymentRouter, walletClient.data]);
 
   // Request a refund for a task
   const refundTask = useCallback(async (taskId: bigint): Promise<boolean> => {
@@ -497,11 +675,16 @@ export function usePaymentRouter() {
       return false;
     }
 
+    if (!walletClient.data) {
+      setError('Wallet client not available');
+      return false;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
-      await writeContractAsync({
+      await walletClient.data.writeContract({
         address: paymentRouter,
         abi: PAYMENT_ROUTER_ABI,
         functionName: 'refundTask',
@@ -515,7 +698,7 @@ export function usePaymentRouter() {
     } finally {
       setIsLoading(false);
     }
-  }, [address, paymentRouter, writeContractAsync]);
+  }, [address, paymentRouter, walletClient.data]);
 
   return {
     acceptTerms,

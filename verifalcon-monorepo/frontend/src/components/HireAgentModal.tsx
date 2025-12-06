@@ -172,8 +172,8 @@ export function HireAgentModal({
                   <label>Payment Amount (BNB)</label>
                   <input
                     type="number"
-                    step="0.001"
-                    min="0.001"
+                    step="0.000001"
+                    min="0.000001"
                     value={paymentAmount}
                     onChange={(e) => setPaymentAmount(e.target.value)}
                   />
