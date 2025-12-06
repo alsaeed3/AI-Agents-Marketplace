@@ -1,0 +1,38 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs
+.next
+out
+
+# Development
+*.log
+npm-debug.log*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment (will be passed at runtime)
+.env*.local
+
+# Git
+.git
+.gitignore
+
+# Test files
+*.test.*
+*.spec.*
+__tests__
+coverage
+
+# Misc
+README.md
+*.md
