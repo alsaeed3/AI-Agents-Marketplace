@@ -1,16 +1,17 @@
-# Verification Layer APRO
+# AI Agents Marketplace
 
 ## Overview
-The Verification Layer APRO is a Node.js project that implements a verification system using the APRO Oracle pattern. It provides an API for checking the validity of serial numbers against a mock database, simulating the behavior of an Oracle.
+The AI Agents Marketplace is a Node.js project that implements a verification system using the APRO Oracle pattern. It provides an API for checking the validity of serial numbers against a mock database, simulating the behavior of an Oracle.
 
 ## Project Structure
 ```
-verification-layer-apro
-├── src
-│   ├── app
-│   │   └── api
-│   │       └── verify
-│   │           └── route.ts        # Next.js API route for serial number verification
+ai-agents-marketplace
+├── verifalcon-monorepo
+│   ├── frontend
+│   │   ├── app
+│   │   │   └── api
+│   │   │       └── verify
+│   │   │           └── route.ts        # Next.js API route for serial number verification
 │   ├── contracts
 │   │   └── IAPRO_Oracle.sol        # Solidity interface for the APRO Oracle
 │   └── lib
@@ -27,7 +28,7 @@ verification-layer-apro
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd verification-layer-apro
+   cd verifalcon-monorepo/frontend
    ```
 
 2. **Install dependencies**:
