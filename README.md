@@ -226,7 +226,7 @@ Invalid serials:
 - [x] APRO Oracle integration
 - [x] BAP-578 agent standard
 - [x] BNB Chain deployment
-- [ ] Agent NFT marketplace
+- [x] Agent NFT marketplace
 - [ ] Multi-agent orchestration
 - [ ] Cross-chain support
 - [ ] Mobile application
